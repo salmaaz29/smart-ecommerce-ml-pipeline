@@ -1,555 +1,1167 @@
-# dashboard.py — Smart eCommerce Intelligence
-# Lance avec : streamlit run dashboard.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import warnings
-warnings.filterwarnings("ignore")
+from plotly.subplots import make_subplots
 
+from groq import Groq
+
+# Clé API Groq — mets ta nouvelle clé ici après l'avoir régénérée
+GROQ_API_KEY = "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"
+GROQ_MODEL   = "openai/gpt-oss-120b"
+
+@st.cache_data(show_spinner=False)
+def appeler_llm(prompt: str) -> str:
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        # PAR
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,   # ✅
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Erreur LLM : {e}"
+
+
+# ============================================================
+# CONFIGURATION PAGE
+# ============================================================
 st.set_page_config(
     page_title="Smart eCommerce Intelligence",
-    page_icon="◈",
+    page_icon="🛍️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# ============================================================
+# STYLE CSS — Dégradé violet/bleu premium
+# ============================================================
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400&display=swap');
+    /* Fond principal dégradé */
+    .stApp {
+        background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+        min-height: 100vh;
+    }
 
-html, body, [class*="css"] {
-    font-family: 'DM Mono', monospace;
-    background-color: #0a0a0a;
-    color: #e8e6e0;
-}
-.stApp { background-color: #0a0a0a; }
-[data-testid="stSidebar"] {
-    background-color: #111111;
-    border-right: 1px solid #222;
-}
-[data-testid="stSidebar"] * { color: #888 !important; font-size: 11px !important; }
-[data-testid="stSidebar"] .sidebar-title {
-    font-family: 'Syne', sans-serif !important;
-    font-size: 14px !important;
-    color: #fff !important;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-#MainMenu, footer, header { visibility: hidden; }
-[data-testid="stDecoration"] { display: none; }
-[data-testid="stMetric"] {
-    background: #141414;
-    border: 1px solid #222;
-    border-radius: 4px;
-    padding: 16px;
-}
-[data-testid="stMetricLabel"] { color: #555 !important; font-size: 10px !important; letter-spacing: 0.15em; text-transform: uppercase; }
-[data-testid="stMetricValue"] { color: #e8e6e0 !important; font-family: 'Syne', sans-serif !important; font-size: 1.8rem !important; }
-.section-label { font-size: 9px; letter-spacing: 0.25em; color: #444; text-transform: uppercase; margin-bottom: 4px; }
-.section-title { font-family: 'Syne', sans-serif; font-size: 1.6rem; font-weight: 700; color: #e8e6e0; margin-bottom: 20px; line-height: 1.2; }
-.card { background: #111; border: 1px solid #1e1e1e; border-radius: 6px; padding: 20px; margin-bottom: 12px; }
-.card-label { font-size: 9px; letter-spacing: 0.2em; color: #444; text-transform: uppercase; margin-bottom: 8px; }
-.card-value { font-family: 'Syne', sans-serif; font-size: 2rem; color: #e8e6e0; font-weight: 700; }
-.card-sub { font-size: 11px; color: #555; margin-top: 4px; }
-.tag { display: inline-block; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 2px; padding: 2px 8px; font-size: 10px; color: #666; margin: 2px; letter-spacing: 0.1em; }
-.accent { color: #c8a97e; }
-.divider { border: none; border-top: 1px solid #1e1e1e; margin: 24px 0; }
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: rgba(255,255,255,0.04) !important;
+        border-right: 1px solid rgba(167,139,250,0.2) !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: rgba(255,255,255,0.85) !important;
+    }
+
+    /* Texte global */
+    .stApp, .stApp p, .stApp label, .stApp div {
+        color: rgba(255,255,255,0.85);
+    }
+
+    /* Métriques KPI */
+    [data-testid="stMetric"] {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(167,139,250,0.25);
+        border-radius: 12px;
+        padding: 16px !important;
+        backdrop-filter: blur(10px);
+    }
+    [data-testid="stMetricLabel"] {
+        color: rgba(255,255,255,0.55) !important;
+        font-size: 12px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    [data-testid="stMetricValue"] {
+        color: #ffffff !important;
+        font-size: 26px !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stMetricDelta"] {
+        color: #a78bfa !important;
+    }
+
+    /* Titres de section */
+    h1 { color: #ffffff !important; font-size: 28px !important; }
+    h2 { color: #a78bfa !important; font-size: 20px !important; }
+    h3 { color: rgba(255,255,255,0.9) !important; font-size: 16px !important; }
+
+    /* Cards dataframe */
+    [data-testid="stDataFrame"] {
+        background: rgba(255,255,255,0.04) !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 10px !important;
+    }
+
+    /* Selectbox et filtres */
+    .stSelectbox > div > div {
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px solid rgba(167,139,250,0.3) !important;
+        color: white !important;
+        border-radius: 8px !important;
+    }
+    .stMultiSelect > div > div {
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px solid rgba(167,139,250,0.3) !important;
+        border-radius: 8px !important;
+    }
+    .stSlider > div {
+        color: #a78bfa !important;
+    }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(255,255,255,0.04);
+        border-radius: 10px;
+        padding: 4px;
+        gap: 4px;
+        border: 1px solid rgba(167,139,250,0.2);
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        color: rgba(255,255,255,0.5);
+        border-radius: 8px;
+        font-size: 13px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: rgba(167,139,250,0.2) !important;
+        color: #a78bfa !important;
+        border: 1px solid rgba(167,139,250,0.4) !important;
+    }
+
+    /* Divider */
+    hr { border-color: rgba(255,255,255,0.1) !important; }
+
+    /* Boutons */
+    .stButton > button {
+        background: linear-gradient(135deg, #7F77DD, #378ADD);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        transition: opacity 0.2s;
+    }
+    .stButton > button:hover { opacity: 0.85; }
+
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(167,139,250,0.2) !important;
+        border-radius: 8px !important;
+        color: rgba(255,255,255,0.85) !important;
+    }
+
+    /* Info / success boxes */
+    .stAlert {
+        background: rgba(167,139,250,0.1) !important;
+        border: 1px solid rgba(167,139,250,0.3) !important;
+        border-radius: 8px !important;
+        color: rgba(255,255,255,0.85) !important;
+    }
+
+    /* Header badge */
+    .header-badge {
+        display: inline-block;
+        background: rgba(167,139,250,0.15);
+        border: 1px solid rgba(167,139,250,0.4);
+        color: #a78bfa;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+
+    /* Score pills */
+    .score-high { color: #5DCAA5; font-weight: 600; }
+    .score-med  { color: #EF9F27; font-weight: 600; }
+    .score-low  { color: #F09595; font-weight: 600; }
+
+    /* Section card */
+    .section-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ── CHARGEMENT DATA ───────────────────────────────────────────
-@st.cache_data
-def load():
-    df = pd.read_csv("dataset_clusters.csv", engine="python")
-    try:
-        rules = pd.read_csv("regles_association.csv")
-    except:
-        rules = pd.DataFrame()
-    return df, rules
+# ============================================================
+# TRADUCTIONS FR / EN
+# ============================================================
+TEXTES = {
+    "FR": {
+        "titre":         "Smart eCommerce Intelligence",
+        "sous_titre":    "Analyse ML · Top-K · Clustering · Anomalies",
+        "langue":        "Langue / Language",
+        "nav_overview":  "Vue générale",
+        "nav_topk":      "Top-K Produits",
+        "nav_ml":        "Clustering ML",
+        "nav_anomalies": "Anomalies DBSCAN",
+        "nav_rules":     "Règles d'association",
+        "kpi_produits":  "Produits analysés",
+        "kpi_topk":      "Top-K sélectionnés",
+        "kpi_prix":      "Prix moyen (DH)",
+        "kpi_anomalies": "Anomalies détectées",
+        "kpi_shops":     "Boutiques",
+        "kpi_categories":"Catégories",
+        "filtre_shop":   "Filtrer par boutique",
+        "filtre_cat":    "Filtrer par catégorie",
+        "filtre_score":  "Score minimum",
+        "filtre_prix":   "Fourchette de prix (DH)",
+        "topk_titre":    "Meilleurs produits — Top-K",
+        "col_produit":   "Produit",
+        "col_shop":      "Boutique",
+        "col_cat":       "Catégorie",
+        "col_prix":      "Prix (DH)",
+        "col_score":     "Score",
+        "col_promo":     "Promo",
+        "col_stock":     "Stock",
+        "col_cluster":   "Segment",
+        "cluster_titre": "Segmentation KMeans K=5",
+        "pca_titre":     "Visualisation PCA",
+        "dbscan_titre":  "Anomalies détectées par DBSCAN",
+        "rules_titre":   "Règles d'association (Apriori)",
+        "dist_prix":     "Distribution des prix",
+        "topk_shop":     "Top-K par boutique",
+        "topk_cat":      "Top-K par catégorie",
+        "segment_prix":  "Segments de prix",
+        "repartition":   "Répartition par boutique",
+        "tous":          "Tous",
+        "oui":           "Oui",
+        "non":           "Non",
+        "en_stock":      "En stock",
+        "epuise":        "Épuisé",
+    },
+    "EN": {
+        "titre":         "Smart eCommerce Intelligence",
+        "sous_titre":    "ML Analysis · Top-K · Clustering · Anomalies",
+        "langue":        "Language / Langue",
+        "nav_overview":  "Overview",
+        "nav_topk":      "Top-K Products",
+        "nav_ml":        "ML Clustering",
+        "nav_anomalies": "DBSCAN Anomalies",
+        "nav_rules":     "Association Rules",
+        "kpi_produits":  "Products analyzed",
+        "kpi_topk":      "Top-K selected",
+        "kpi_prix":      "Avg price (DH)",
+        "kpi_anomalies": "Anomalies detected",
+        "kpi_shops":     "Shops",
+        "kpi_categories":"Categories",
+        "filtre_shop":   "Filter by shop",
+        "filtre_cat":    "Filter by category",
+        "filtre_score":  "Minimum score",
+        "filtre_prix":   "Price range (DH)",
+        "topk_titre":    "Best products — Top-K",
+        "col_produit":   "Product",
+        "col_shop":      "Shop",
+        "col_cat":       "Category",
+        "col_prix":      "Price (DH)",
+        "col_score":     "Score",
+        "col_promo":     "Promo",
+        "col_stock":     "Stock",
+        "col_cluster":   "Segment",
+        "cluster_titre": "KMeans K=5 Segmentation",
+        "pca_titre":     "PCA Visualization",
+        "dbscan_titre":  "DBSCAN Anomalies",
+        "rules_titre":   "Association Rules (Apriori)",
+        "dist_prix":     "Price distribution",
+        "topk_shop":     "Top-K by shop",
+        "topk_cat":      "Top-K by category",
+        "segment_prix":  "Price segments",
+        "repartition":   "Distribution by shop",
+        "tous":          "All",
+        "oui":           "Yes",
+        "non":           "No",
+        "en_stock":      "In stock",
+        "epuise":        "Out of stock",
+    }
+}
 
-df, rules = load()
+# ============================================================
+# COULEURS PLOTLY — thème violet/bleu premium
+# ============================================================
+COLORS = {
+    "purple":  "#7F77DD",
+    "blue":    "#378ADD",
+    "teal":    "#1D9E75",
+    "amber":   "#EF9F27",
+    "coral":   "#D85A30",
+    "pink":    "#D4537E",
+    "green":   "#639922",
+    "gray":    "#888780",
+}
 
-# ── SIDEBAR ───────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown('<div class="sidebar-title">◈ Smart eCommerce</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-title">Intelligence Pipeline</div>', unsafe_allow_html=True)
-    st.markdown("---")
+PALETTE_SHOPS = {
+    "BeautyMarket": "#7F77DD",
+    "Justyol":      "#378ADD",
+    "Kiabi":        "#1D9E75",
+    "Lasolda":      "#EF9F27",
+    "Lhmiza":       "#D4537E",
+}
 
-    page = st.radio("Navigation", [
-        "Overview", "Top-K Products", "Price Analysis",
-        "ML Clustering", "Random Forest", "Apriori Rules", "LLM Insights"
-    ], label_visibility="collapsed")
+PALETTE_CLUSTERS = {
+    "Très low-cost": "#1D9E75",
+    "Low-cost":      "#5DCAA5",
+    "Mid-range":     "#378ADD",
+    "Premium":       "#EF9F27",
+    "Luxe":          "#D85A30",
+}
 
-    st.markdown("---")
-
-    # ✅ Shop en premier
-    shop_f = st.selectbox("Shop", ["All"] + sorted(df["shop"].unique().tolist()))
-
-    # ✅ Catégories dynamiques selon shop
-    if shop_f != "All":
-        cats_dispo = sorted(df[df["shop"] == shop_f]["categorie"].dropna().unique().tolist())
-    else:
-        cats_dispo = sorted(df["categorie"].dropna().unique().tolist())
-    cat_f = st.selectbox("Category", ["All"] + cats_dispo)
-
-    # ✅ Segments dynamiques selon shop + catégorie
-    df_temp = df.copy()
-    if shop_f != "All": df_temp = df_temp[df_temp["shop"] == shop_f]
-    if cat_f  != "All": df_temp = df_temp[df_temp["categorie"] == cat_f]
-    segs_dispo = sorted(df_temp["segment_prix"].dropna().unique().tolist())
-    seg_f = st.selectbox("Segment", ["All"] + segs_dispo)
-
-    st.markdown("---")
-    st.markdown('<div style="font-size:9px;color:#333;letter-spacing:0.1em">ARCHITECTURE</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:9px;color:#444">MCP Host / Client / Server</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:9px;color:#444">{len(df):,} produits chargés</div>', unsafe_allow_html=True)
-
-# ✅ Application des filtres
-dff = df.copy()
-if shop_f != "All": dff = dff[dff["shop"] == shop_f]
-if cat_f  != "All": dff = dff[dff["categorie"] == cat_f]
-if seg_f  != "All": dff = dff[dff["segment_prix"] == seg_f]
-
-# ✅ Arrêt propre si vide
-if len(dff) == 0:
-    st.warning("⚠️ Aucun produit ne correspond à cette combinaison de filtres.")
-    st.stop()
-
-# Plotly theme
-PLOT_LAYOUT = dict(
-    paper_bgcolor="#0a0a0a",
-    plot_bgcolor="#0a0a0a",
-    font=dict(family="DM Mono", color="#666", size=11),
-    margin=dict(l=20, r=20, t=40, b=20),
-    xaxis=dict(gridcolor="#1a1a1a", linecolor="#222", tickfont=dict(color="#555")),
-    yaxis=dict(gridcolor="#1a1a1a", linecolor="#222", tickfont=dict(color="#555")),
-    title_font=dict(family="Syne", color="#888", size=13),
+PLOTLY_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(255,255,255,0.03)",
+    font=dict(color="rgba(255,255,255,0.75)", size=12),
+    title_font=dict(color="white", size=14),
+    legend=dict(
+        bgcolor="rgba(255,255,255,0.05)",
+        bordercolor="rgba(255,255,255,0.1)",
+        borderwidth=1,
+        font=dict(color="rgba(255,255,255,0.75)")
+    ),
+    xaxis=dict(
+        gridcolor="rgba(255,255,255,0.06)",
+        linecolor="rgba(255,255,255,0.1)",
+        tickfont=dict(color="rgba(255,255,255,0.55)")
+    ),
+    yaxis=dict(
+        gridcolor="rgba(255,255,255,0.06)",
+        linecolor="rgba(255,255,255,0.1)",
+        tickfont=dict(color="rgba(255,255,255,0.55)")
+    ),
+    margin=dict(t=40, b=30, l=30, r=20)
 )
-ACCENT = "#c8a97e"
-COLORS = ["#c8a97e","#7e9cc8","#7ec89c","#c87e9c","#9c7ec8"]
 
-# ══════════════════════════════════════════════════════════════
-# PAGE 1 — OVERVIEW
-# ══════════════════════════════════════════════════════════════
-if page == "Overview":
-    st.markdown('<div class="section-label">Overview / Validated Pipeline State</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Un système intelligent d\'analyse<br>du marché e-commerce marocain.</div>', unsafe_allow_html=True)
+# ============================================================
+# CHARGEMENT DES DONNÉES
+# ============================================================
+@st.cache_data
+def charger_donnees():
+    df = pd.read_csv("dataset_features.csv", engine="python")
 
-    n        = len(dff)
-    nb_shops = dff["shop"].nunique()
-    nb_cats  = dff["categorie"].nunique()
+    # Nettoyage colonnes affichage
+    df["prix"] = pd.to_numeric(df["prix"], errors="coerce")
+    df["score_popularite"] = pd.to_numeric(df["score_popularite"], errors="coerce")
+    df["promo_bin"] = pd.to_numeric(df["promo_bin"], errors="coerce").fillna(0)
+    df["stock_bin"] = pd.to_numeric(df["stock_bin"], errors="coerce").fillna(0)
 
-    pct_prix   = (dff["prix"] > 0).sum()   / n * 100 if n > 0 else 0
-    pct_rating = (dff["rating"] > 0).sum() / n * 100 if n > 0 else 0
-    pct_stock  = dff["stock_bin"].sum()     / n * 100 if n > 0 else 0
-    pct_promo  = dff["promo_bin"].sum()     / n * 100 if n > 0 else 0
+    # Labels lisibles
+    df["promo_label"] = df["promo_bin"].apply(lambda x: "Oui" if x == 1 else "Non")
+    df["stock_label"] = df["stock_bin"].apply(lambda x: "En stock" if x == 1 else "Épuisé")
 
-    st.markdown(f"""
-    <div class="card">
-        <div class="card-label">Lecture du marché</div>
-        <div style="font-size:13px;color:#666;line-height:1.8">
-            Le pipeline couvre <span class="accent">{n:,} produits</span> répartis sur
-            <span class="accent">{nb_shops} boutique(s)</span> et
-            <span class="accent">{nb_cats} catégorie(s)</span>.
-            La plateforme dominante est <span class="accent">Shopify</span> avec Justyol en tête du volume.
-            Le dataset contient <span class="accent">{int(dff["promo_bin"].sum()):,} produits en promotion</span>
-            et un taux de disponibilité de <span class="accent">{pct_stock:.1f}%</span>.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # cluster_nom si absent
+    if "cluster_nom" not in df.columns and "cluster" in df.columns:
+        prix_cluster = df.groupby("cluster")["prix"].mean()
+        def nommer(p):
+            if p < 100: return "Très low-cost"
+            elif p < 200: return "Low-cost"
+            elif p < 400: return "Mid-range"
+            elif p < 800: return "Premium"
+            else: return "Luxe"
+        df["cluster_nom"] = df["cluster"].map(prix_cluster).apply(nommer)
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f'<div class="card"><div class="card-label">Price Coverage</div><div class="card-value">{pct_prix:.1f}%</div><div class="card-sub">Produits avec prix valide</div></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="card"><div class="card-label">Rating Coverage</div><div class="card-value">{pct_rating:.1f}%</div><div class="card-sub">Produits avec note disponible</div></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="card"><div class="card-label">In-Stock Signal</div><div class="card-value">{pct_stock:.1f}%</div><div class="card-sub">Produits marqués disponibles</div></div>', unsafe_allow_html=True)
-    with c4:
-        st.markdown(f'<div class="card"><div class="card-label">Discounted Rows</div><div class="card-value">{pct_promo:.1f}%</div><div class="card-sub">Produits avec remise détectée</div></div>', unsafe_allow_html=True)
+    return df
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    c5, c6 = st.columns(2)
-    with c5:
-        shop_counts = dff.groupby(["shop","platform"]).size().reset_index(name="n")
-        fig = px.bar(shop_counts, x="shop", y="n", color="platform",
-                     color_discrete_sequence=COLORS,
-                     title="Produits par boutique et plateforme")
-        fig.update_layout(**PLOT_LAYOUT)
-        st.plotly_chart(fig, use_container_width=True)
-    with c6:
-        seg_counts = dff["segment_prix"].value_counts().reset_index()
-        seg_counts.columns = ["segment","n"]
-        if len(seg_counts) > 0:
-            fig2 = px.pie(seg_counts, values="n", names="segment",
-                          color_discrete_sequence=COLORS,
-                          title="Répartition segments de prix")
-            fig2.update_layout(**PLOT_LAYOUT)
-            fig2.update_traces(textfont_color="#888")
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("Pas de données segment pour ce filtre.")
+@st.cache_data
+def charger_regles():
+    try:
+        return pd.read_csv("regles_association.csv", engine="python")
+    except:
+        return pd.DataFrame()
 
-# ══════════════════════════════════════════════════════════════
-# PAGE 2 — TOP-K PRODUCTS
-# ══════════════════════════════════════════════════════════════
-elif page == "Top-K Products":
-    st.markdown('<div class="section-label">Product Rankings / Scoring Model</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Classement des produits<br>à fort potentiel commercial.</div>', unsafe_allow_html=True)
+@st.cache_data
+def charger_anomalies():
+    try:
+        return pd.read_csv("anomalies_dbscan.csv", engine="python")
+    except:
+        return pd.DataFrame()
 
-    k_val = st.slider("Nombre de produits à afficher", 10, 100, 30)
+# ============================================================
+# SIDEBAR
+# ============================================================
+with st.sidebar:
+    st.markdown("## ⚙️ Paramètres")
+    langue = st.selectbox("🌐 Langue / Language", ["FR", "EN"])
+    T = TEXTES[langue]
 
-    # ✅ Top-K dynamique sur données filtrées — plus de top_k==1 fixe
-    top = (dff
-           .sort_values("score_popularite", ascending=False)
-           .head(k_val)[["shop","categorie","produit","prix","segment_prix",
-                          "score_popularite","cluster_nom","stock"]]
-           .reset_index(drop=True))
-    top.index += 1
+    st.markdown("---")
+    st.markdown("### Filtres globaux")
 
-    st.markdown(f'<div class="card"><div class="card-label">Top-K sélectionnés</div><div class="card-value accent">{len(top)}</div><div class="card-sub">sur {len(dff):,} produits filtrés</div></div>', unsafe_allow_html=True)
+    df_raw = charger_donnees()
 
-    if len(top) > 0:
-        st.dataframe(
-            top.style.background_gradient(subset=["score_popularite"], cmap="YlOrBr"),
-            use_container_width=True
-        )
-    else:
-        st.info("Aucun produit pour ce filtre.")
+    shops_dispo = [T["tous"]] + sorted(df_raw["shop"].unique().tolist())
+    shop_sel = st.selectbox(T["filtre_shop"], shops_dispo)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        topk_shop = (dff.groupby("shop")["score_popularite"]
-                     .mean().reset_index()
-                     .rename(columns={"score_popularite":"score_moyen"})
-                     .sort_values("score_moyen"))
-        if len(topk_shop) > 0:
-            fig = px.bar(topk_shop, x="score_moyen", y="shop", orientation="h",
-                         color="score_moyen",
-                         color_continuous_scale=[[0,"#1a1a1a"],[1,ACCENT]],
-                         title="Score moyen par boutique",
-                         labels={"score_moyen":"Score moyen","shop":""})
-            fig.update_layout(**PLOT_LAYOUT, coloraxis_showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+    cats_dispo = [T["tous"]] + sorted(df_raw["categorie"].dropna().unique().tolist())
+    cat_sel = st.selectbox(T["filtre_cat"], cats_dispo)
 
-    with c2:
-        topk_cat = (dff.groupby("categorie")["score_popularite"]
-                    .mean().reset_index()
-                    .rename(columns={"score_popularite":"score_moyen"})
-                    .sort_values("score_moyen").tail(12))
-        if len(topk_cat) > 0:
-            fig2 = px.bar(topk_cat, x="score_moyen", y="categorie", orientation="h",
-                          color="score_moyen",
-                          color_continuous_scale=[[0,"#1a1a1a"],[1,"#7e9cc8"]],
-                          title="Score moyen par catégorie (Top 12)",
-                          labels={"score_moyen":"Score moyen","categorie":""})
-            fig2.update_layout(**PLOT_LAYOUT, coloraxis_showscale=False)
-            st.plotly_chart(fig2, use_container_width=True)
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    st.markdown('<div class="card-label">Détail complet des produits classés</div>', unsafe_allow_html=True)
-    detail = (dff.sort_values("score_popularite", ascending=False)
-              [["shop","categorie","produit","prix","segment_prix",
-                "score_popularite","stock","en_promo"]]
-              .reset_index(drop=True))
-    detail.index += 1
-    detail.index.name = "Rang"
-    st.dataframe(
-        detail.style.background_gradient(subset=["score_popularite"], cmap="YlOrBr"),
-        use_container_width=True
+    prix_min = int(df_raw["prix"].min())
+    prix_max = int(df_raw["prix"].max())
+    prix_range = st.slider(
+        T["filtre_prix"],
+        min_value=prix_min,
+        max_value=prix_max,
+        value=(prix_min, prix_max),
+        step=10
     )
 
-# ══════════════════════════════════════════════════════════════
-# PAGE 3 — PRICE ANALYSIS
-# ══════════════════════════════════════════════════════════════
-elif page == "Price Analysis":
-    st.markdown('<div class="section-label">Price Intelligence / Market Spread</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Stratégie tarifaire<br>et positionnement des boutiques.</div>', unsafe_allow_html=True)
+    score_min = st.slider(T["filtre_score"], 0.0, 1.0, 0.0, 0.05)
 
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Prix moyen",  f"{dff['prix'].mean():.0f} DH")
-    c2.metric("Prix médian", f"{dff['prix'].median():.0f} DH")
-    c3.metric("Prix min",    f"{dff['prix'].min():.0f} DH")
-    c4.metric("Prix max",    f"{dff['prix'].max():.0f} DH")
-
-    fig_hist = px.histogram(dff, x="prix", nbins=60, color="shop",
-                            color_discrete_sequence=COLORS,
-                            title="Distribution des prix par boutique",
-                            opacity=0.8)
-    fig_hist.update_layout(**PLOT_LAYOUT, bargap=0.05)
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-    c3, c4 = st.columns(2)
-    with c3:
-        box_df = dff[dff["prix"] < dff["prix"].quantile(0.95)]
-        fig_box = px.box(box_df, x="shop", y="prix", color="shop",
-                         color_discrete_sequence=COLORS,
-                         title="Dispersion des prix par boutique")
-        fig_box.update_layout(**PLOT_LAYOUT, showlegend=False)
-        st.plotly_chart(fig_box, use_container_width=True)
-    with c4:
-        prix_cat = (dff.groupby("categorie")["prix"].mean()
-                    .reset_index().sort_values("prix").tail(15))
-        if len(prix_cat) > 0:
-            fig_cat = px.bar(prix_cat, x="prix", y="categorie", orientation="h",
-                             color="prix",
-                             color_continuous_scale=[[0,"#1a1a1a"],[1,ACCENT]],
-                             title="Prix moyen Top 15 catégories",
-                             labels={"prix":"Prix moyen (DH)","categorie":""})
-            fig_cat.update_layout(**PLOT_LAYOUT, coloraxis_showscale=False)
-            st.plotly_chart(fig_cat, use_container_width=True)
-
-# ══════════════════════════════════════════════════════════════
-# PAGE 4 — ML CLUSTERING
-# ══════════════════════════════════════════════════════════════
-elif page == "ML Clustering":
-    st.markdown('<div class="section-label">ML Models / KMeans K=5</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Segmentation automatique<br>des produits par profil commercial.</div>', unsafe_allow_html=True)
-
-    c1,c2,c3 = st.columns(3)
-    c1.metric("Clusters", "5")
-    c2.metric("Silhouette Score", "0.490")
-    c3.metric("Algorithme", "KMeans")
-
+    st.markdown("---")
     st.markdown("""
-    <div class="card">
-        <div class="card-label">Interprétation des clusters</div>
-        <div style="font-size:12px;color:#555;line-height:1.9">
-            <span class="tag">Très low-cost</span> Prix &lt; 100 DH — produits d'entrée de gamme<br>
-            <span class="tag">Low-cost</span> Prix 100–200 DH — segment accessible, Kiabi dominant<br>
-            <span class="tag">Mid-range</span> Prix 200–400 DH — segment principal, BeautyMarket + Justyol<br>
-            <span class="tag">Premium</span> Prix 400–800 DH — segment haut de gamme, Lasolda + Lhmiza<br>
-            <span class="tag">Luxe</span> Prix &gt; 800 DH — électroménager/tech premium
-        </div>
+    <div style='font-size:11px;color:rgba(255,255,255,0.35);text-align:center'>
+    Smart eCommerce Intelligence<br>
+    FST Tanger · LSI 2 · 2025/2026
     </div>
     """, unsafe_allow_html=True)
 
-    if "cluster_nom" in dff.columns and dff["cluster_nom"].notna().any():
-        fig_sc = px.scatter(dff, x="log_prix", y="score_popularite",
-                            color="cluster_nom",
-                            hover_data=["produit","prix","shop"],
-                            color_discrete_sequence=COLORS,
-                            title="Clusters KMeans — Log Prix vs Score Popularité")
-        fig_sc.update_traces(marker=dict(size=5, opacity=0.55))
-        fig_sc.update_layout(**PLOT_LAYOUT)
-        st.plotly_chart(fig_sc, use_container_width=True)
+T = TEXTES[langue]
 
-        c5, c6 = st.columns(2)
-        with c5:
-            profil = dff.groupby("cluster_nom").agg(
-                prix_moyen=("prix","mean"),
-                score_moyen=("score_popularite","mean"),
-                promo_pct=("promo_bin","mean"),
-                nb=("produit","count")
-            ).reset_index().round(2)
+# ============================================================
+# APPLICATION DES FILTRES
+# ============================================================
+df = df_raw.copy()
+if shop_sel != T["tous"]:
+    df = df[df["shop"] == shop_sel]
+if cat_sel != T["tous"]:
+    df = df[df["categorie"] == cat_sel]
+df = df[(df["prix"] >= prix_range[0]) & (df["prix"] <= prix_range[1])]
+df = df[df["score_popularite"] >= score_min]
+
+df_topk = df[df["top_k"] == 1].sort_values("score_popularite", ascending=False)
+
+# ============================================================
+# HEADER
+# ============================================================
+st.markdown(f"""
+<div style='text-align:center;padding:10px 0 20px'>
+  <h1 style='font-size:32px;font-weight:700;
+     background:linear-gradient(90deg,#a78bfa,#60a5fa);
+     -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+     margin-bottom:6px'>
+    {T["titre"]}
+  </h1>
+  <p style='color:rgba(255,255,255,0.45);font-size:14px'>{T["sous_titre"]}</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# NAVIGATION PAR ONGLETS
+# ============================================================
+# PAR
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    f"📊 {T['nav_overview']}",
+    f"🏆 {T['nav_topk']}",
+    f"🔵 {T['nav_ml']}",
+    f"⚠️ {T['nav_anomalies']}",
+    f"🔗 {T['nav_rules']}",
+    f"🤖 Intelligence LLM",
+])
+
+# ════════════════════════════════════════════════════════════
+# TAB 1 — VUE GÉNÉRALE
+# ════════════════════════════════════════════════════════════
+with tab1:
+
+    # KPIs
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric(T["kpi_produits"],  f"{len(df):,}")
+    c2.metric(T["kpi_topk"],      f"{len(df_topk):,}",
+              f"{len(df_topk)/len(df)*100:.1f}%" if len(df) > 0 else "")
+    c3.metric(T["kpi_prix"],      f"{df['prix'].mean():.0f} DH")
+    c4.metric(T["kpi_anomalies"],
+              str(int((df["dbscan_label"] == -1).sum())) if "dbscan_label" in df.columns else "N/A")
+    c5.metric(T["kpi_shops"],     str(df["shop"].nunique()))
+    c6.metric(T["kpi_categories"],str(df["categorie"].nunique()))
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Top-K par boutique
+        topk_shop = df_topk.groupby("shop").size().reset_index(name="count")
+        topk_shop = topk_shop.sort_values("count", ascending=True)
+        fig = go.Figure(go.Bar(
+            x=topk_shop["count"],
+            y=topk_shop["shop"],
+            orientation="h",
+            marker=dict(
+                color=[PALETTE_SHOPS.get(s, "#888") for s in topk_shop["shop"]],
+                line=dict(width=0)
+            ),
+            text=topk_shop["count"],
+            textposition="outside",
+            textfont=dict(color="white", size=11)
+        ))
+        fig.update_layout(**PLOTLY_LAYOUT, title=T["topk_shop"], height=280)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        # Distribution des prix
+        fig2 = go.Figure()
+        for shop in df["shop"].unique():
+            sub = df[df["shop"] == shop]["prix"]
+            fig2.add_trace(go.Histogram(
+                x=sub, name=shop,
+                marker_color=PALETTE_SHOPS.get(shop, "#888"),
+                opacity=0.7, nbinsx=40
+            ))
+        fig2.update_layout(**PLOTLY_LAYOUT, title=T["dist_prix"],
+                           barmode="overlay", height=280)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        # Répartition produits par boutique (donut)
+        shop_counts = df.groupby("shop").size().reset_index(name="nb")
+        fig3 = go.Figure(go.Pie(
+            labels=shop_counts["shop"],
+            values=shop_counts["nb"],
+            hole=0.55,
+            marker=dict(colors=[PALETTE_SHOPS.get(s, "#888") for s in shop_counts["shop"]]),
+            textfont=dict(color="white"),
+        ))
+        fig3.update_layout(**PLOTLY_LAYOUT, title=T["repartition"], height=280)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with col4:
+        # Top-K par catégorie (top 10)
+        topk_cat = df_topk.groupby("categorie").size().reset_index(name="count")
+        topk_cat = topk_cat.nlargest(10, "count").sort_values("count", ascending=True)
+        fig4 = go.Figure(go.Bar(
+            x=topk_cat["count"],
+            y=topk_cat["categorie"],
+            orientation="h",
+            marker=dict(
+                color=COLORS["purple"],
+                opacity=0.85,
+                line=dict(width=0)
+            ),
+            text=topk_cat["count"],
+            textposition="outside",
+            textfont=dict(color="white", size=10)
+        ))
+        fig4.update_layout(**PLOTLY_LAYOUT, title=T["topk_cat"], height=280)
+        st.plotly_chart(fig4, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════
+# TAB 2 — TOP-K PRODUITS
+# ════════════════════════════════════════════════════════════
+with tab2:
+    st.markdown(f"## 🏆 {T['topk_titre']}")
+
+    # Filtres supplémentaires
+    col_f1, col_f2, col_f3 = st.columns(3)
+    with col_f1:
+        nb_afficher = st.selectbox("Afficher / Show", [25, 50, 100, 200], index=0)
+    with col_f2:
+        tri_col = st.selectbox("Trier par / Sort by",
+                               [T["col_score"], T["col_prix"]])
+    with col_f3:
+        tri_asc = st.selectbox("Ordre / Order", ["Décroissant ↓", "Croissant ↑"])
+
+    tri_ascending = (tri_asc == "Croissant ↑")
+    col_tri = "score_popularite" if tri_col == T["col_score"] else "prix"
+
+    df_display = df_topk.sort_values(col_tri, ascending=tri_ascending).head(nb_afficher)
+
+    # Score moyen Top-K
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+    col_s1.metric("Score moyen", f"{df_topk['score_popularite'].mean():.3f}")
+    col_s2.metric("Prix moyen Top-K", f"{df_topk['prix'].mean():.0f} DH")
+    col_s3.metric("En promo", f"{df_topk['promo_bin'].sum():.0f}")
+    col_s4.metric("En stock", f"{df_topk['stock_bin'].sum():.0f}")
+
+    st.markdown("---")
+
+    # Tableau Top-K
+    cols_afficher = {
+        "produit":          T["col_produit"],
+        "shop":             T["col_shop"],
+        "categorie":        T["col_cat"],
+        "prix":             T["col_prix"],
+        "score_popularite": T["col_score"],
+        "promo_label":      T["col_promo"],
+        "stock_label":      T["col_stock"],
+        "cluster_nom":      T["col_cluster"],
+    }
+    cols_dispo = [c for c in cols_afficher.keys() if c in df_display.columns]
+    df_show = df_display[cols_dispo].rename(columns=cols_afficher)
+    df_show[T["col_score"]] = df_show[T["col_score"]].round(4)
+    df_show[T["col_prix"]]  = df_show[T["col_prix"]].round(0).astype(int)
+
+    st.dataframe(
+        df_show,
+        use_container_width=True,
+        height=420,
+        hide_index=True
+    )
+
+    # Score distribution Top-K vs Non Top-K
+    st.markdown("---")
+    col_g1, col_g2 = st.columns(2)
+
+    with col_g1:
+        fig_score = go.Figure()
+        fig_score.add_trace(go.Histogram(
+            x=df[df["top_k"] == 1]["score_popularite"],
+            name="Top-K", marker_color=COLORS["purple"],
+            opacity=0.75, nbinsx=30
+        ))
+        fig_score.add_trace(go.Histogram(
+            x=df[df["top_k"] == 0]["score_popularite"],
+            name="Non Top-K", marker_color=COLORS["gray"],
+            opacity=0.5, nbinsx=30
+        ))
+        fig_score.update_layout(**PLOTLY_LAYOUT,
+                                title="Distribution scores — Top-K vs Non Top-K",
+                                barmode="overlay", height=280)
+        st.plotly_chart(fig_score, use_container_width=True)
+
+    with col_g2:
+        fig_scatter = go.Figure()
+        for shop in df_topk["shop"].unique():
+            sub = df_topk[df_topk["shop"] == shop].head(60)
+            fig_scatter.add_trace(go.Scatter(
+                x=sub["prix"],
+                y=sub["score_popularite"],
+                mode="markers",
+                name=shop,
+                marker=dict(
+                    color=PALETTE_SHOPS.get(shop, "#888"),
+                    size=7,
+                    opacity=0.75
+                ),
+                text=sub["produit"],
+                hovertemplate="<b>%{text}</b><br>Prix: %{x} DH<br>Score: %{y}<extra></extra>"
+            ))
+        fig_scatter.update_layout(**PLOTLY_LAYOUT,
+                                title="Prix vs Score — Top-K produits",
+                                height=280)
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════
+# TAB 3 — CLUSTERING ML
+# ════════════════════════════════════════════════════════════
+with tab3:
+    st.markdown(f"## 🔵 {T['cluster_titre']}")
+
+    if "cluster_nom" in df.columns:
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Clusters", df["cluster_nom"].nunique())
+        col_m2.metric("Silhouette Score", "0.349")
+        col_m3.metric("Algorithme", "KMeans K=5")
+
+        st.markdown("---")
+        col_k1, col_k2 = st.columns(2)
+
+        with col_k1:
+            # Profil des clusters
+            profil = df.groupby("cluster_nom").agg(
+                nb_produits=("produit", "count"),
+                prix_moyen=("prix", "mean"),
+                score_moyen=("score_popularite", "mean"),
+                promo_pct=("promo_bin", "mean")
+            ).round(2).reset_index()
+
+            fig_clusters = go.Figure()
+            for _, row in profil.iterrows():
+                fig_clusters.add_trace(go.Bar(
+                    name=row["cluster_nom"],
+                    x=[row["cluster_nom"]],
+                    y=[row["nb_produits"]],
+                    marker_color=PALETTE_CLUSTERS.get(row["cluster_nom"], "#888"),
+                    text=[f'{row["nb_produits"]}<br>{row["prix_moyen"]:.0f} DH'],
+                    textposition="outside",
+                    textfont=dict(color="white", size=10)
+                ))
+            fig_clusters.update_layout(**PLOTLY_LAYOUT,
+                                       title="Nombre de produits par segment",
+                                       showlegend=False, height=300)
+            st.plotly_chart(fig_clusters, use_container_width=True)
+
+        # PAR
+        with col_k2:
+            fig_box = go.Figure()
+            for cluster in df["cluster_nom"].unique():
+                sub = df[df["cluster_nom"] == cluster]["prix"]
+                fig_box.add_trace(go.Box(
+                    y=sub, name=cluster,
+                    marker_color=PALETTE_CLUSTERS.get(cluster, "#888"),
+                    line_color=PALETTE_CLUSTERS.get(cluster, "#888"),
+                    fillcolor=PALETTE_CLUSTERS.get(cluster, "#888"),
+                    opacity=0.7,
+                    boxpoints=False
+                ))
+            fig_box.update_layout(**PLOTLY_LAYOUT,
+                                title="Distribution prix par segment",
+                                showlegend=False, height=300)
+            st.plotly_chart(fig_box, use_container_width=True)
+
+        # Scatter plot KMeans (log_prix vs score)
+        # PAR
+        if "log_prix" in df.columns:
+            fig_km = go.Figure()
+            df_sample = df.sample(min(3000, len(df)))
+            for cluster in df_sample["cluster_nom"].unique():
+                sub = df_sample[df_sample["cluster_nom"] == cluster]
+                fig_km.add_trace(go.Scatter(
+                    x=sub["log_prix"], y=sub["score_popularite"],
+                    mode="markers", name=cluster,
+                    marker=dict(color=PALETTE_CLUSTERS.get(cluster, "#888"),
+                            size=5, opacity=0.6),
+                    text=sub["produit"],
+                    hovertemplate="<b>%{text}</b><br>Log Prix: %{x:.2f}<br>Score: %{y:.3f}<extra></extra>"
+                ))
+            fig_km.update_layout(**PLOTLY_LAYOUT,
+                                title="KMeans — Log Prix vs Score de popularité",
+                                height=350)
+            st.plotly_chart(fig_km, use_container_width=True)
+
+        # Tableau profil
+        st.markdown("#### Profil détaillé des clusters")
+        profil_display = profil.rename(columns={
+            "cluster_nom": "Segment",
+            "nb_produits": "Nb produits",
+            "prix_moyen":  "Prix moyen (DH)",
+            "score_moyen": "Score moyen",
+            "promo_pct":   "% Promo"
+        })
+        profil_display["% Promo"] = (profil_display["% Promo"] * 100).round(1)
+        st.dataframe(profil_display, use_container_width=True, hide_index=True)
+
+    # PCA
+    st.markdown("---")
+    st.markdown(f"### 📐 {T['pca_titre']}")
+
+    if "pca1" in df.columns and "pca2" in df.columns:
+        col_p1, col_p2 = st.columns(2)
+
+                # PAR
+        with col_p1:
+            fig_pca1 = go.Figure()
+            df_pca_sample = df.sample(min(3000, len(df)))
+            for cluster in df_pca_sample["cluster_nom"].unique():
+                sub = df_pca_sample[df_pca_sample["cluster_nom"] == cluster]
+                fig_pca1.add_trace(go.Scatter(
+                    x=sub["pca1"], y=sub["pca2"],
+                    mode="markers", name=cluster,
+                    marker=dict(color=PALETTE_CLUSTERS.get(cluster, "#888"),
+                            size=4, opacity=0.6),
+                    text=sub["produit"],
+                    hovertemplate="<b>%{text}</b><extra></extra>"
+                ))
+            fig_pca1.update_layout(**PLOTLY_LAYOUT,
+                                title="PCA — coloré par segment KMeans",
+                                height=320)
+            st.plotly_chart(fig_pca1, use_container_width=True)
+
+        # PAR
+        with col_p2:
+            fig_pca2 = go.Figure()
+            df_pca_sample2 = df.sample(min(3000, len(df)))
+            for shop in df_pca_sample2["shop"].unique():
+                sub = df_pca_sample2[df_pca_sample2["shop"] == shop]
+                fig_pca2.add_trace(go.Scatter(
+                    x=sub["pca1"], y=sub["pca2"],
+                    mode="markers", name=shop,
+                    marker=dict(color=PALETTE_SHOPS.get(shop, "#888"),
+                            size=4, opacity=0.6),
+                    text=sub["produit"],
+                    hovertemplate="<b>%{text}</b><extra></extra>"
+                ))
+            fig_pca2.update_layout(**PLOTLY_LAYOUT,
+                                title="PCA — coloré par boutique",
+                                height=320)
+            st.plotly_chart(fig_pca2, use_container_width=True)
+
+        st.info("PC1 (38.7%) = axe promotion/shop · PC2 (21.3%) = axe popularité/remise · Variance totale : 60.0%")
+    else:
+        st.warning("Colonnes PCA non trouvées. Lance d'abord ml_pipeline_complet.py")
+
+# ════════════════════════════════════════════════════════════
+# TAB 4 — ANOMALIES DBSCAN
+# ════════════════════════════════════════════════════════════
+with tab4:
+    st.markdown(f"## ⚠️ {T['dbscan_titre']}")
+
+    if "dbscan_label" in df.columns:
+        anomalies_df = df[df["dbscan_label"] == -1].copy()
+        normaux_df   = df[df["dbscan_label"] != -1].copy()
+
+        col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+        col_d1.metric("Anomalies totales", len(anomalies_df))
+        col_d2.metric("% du dataset", f"{len(anomalies_df)/len(df)*100:.2f}%")
+        col_d3.metric("Prix moyen anomalies", f"{anomalies_df['prix'].mean():.0f} DH" if len(anomalies_df) > 0 else "N/A")
+        col_d4.metric("Clusters DBSCAN", df["dbscan_label"].nunique() - 1)
+
+        st.markdown("---")
+
+        if len(anomalies_df) > 0:
+            col_db1, col_db2 = st.columns(2)
+
+            # PAR
+            with col_db1:
+                anom_shop = anomalies_df.groupby("shop").size().reset_index(name="nb")
+                fig_anom = go.Figure()
+                fig_anom.add_trace(go.Bar(
+                    x=anom_shop["shop"],
+                    y=anom_shop["nb"],
+                    marker=dict(
+                        color=[PALETTE_SHOPS.get(s, "#888") for s in anom_shop["shop"]],
+                        line=dict(width=0)
+                    ),
+                    text=anom_shop["nb"],
+                    textposition="outside",
+                    textfont=dict(color="white", size=11)
+                ))
+                fig_anom.update_layout(**PLOTLY_LAYOUT,
+                                    title="Anomalies par boutique",
+                                    showlegend=False, height=280)
+                st.plotly_chart(fig_anom, use_container_width=True)
+
+            with col_db2:
+                # Prix normaux vs anomalies
+                fig_comp = go.Figure()
+                fig_comp.add_trace(go.Histogram(
+                    x=normaux_df["prix"].clip(upper=normaux_df["prix"].quantile(0.99)),
+                    name="Normaux", marker_color=COLORS["blue"],
+                    opacity=0.6, nbinsx=40
+                ))
+                fig_comp.add_trace(go.Histogram(
+                    x=anomalies_df["prix"],
+                    name="Anomalies", marker_color=COLORS["coral"],
+                    opacity=0.9, nbinsx=20
+                ))
+                fig_comp.update_layout(**PLOTLY_LAYOUT,
+                                       title="Prix : normaux vs anomalies",
+                                       barmode="overlay", height=280)
+                st.plotly_chart(fig_comp, use_container_width=True)
+
+            # PCA avec anomalies surlignées
+            if "pca1" in df.columns:
+                fig_pca_anom = go.Figure()
+                fig_pca_anom.add_trace(go.Scatter(
+                    x=normaux_df.sample(min(2000, len(normaux_df)))["pca1"],
+                    y=normaux_df.sample(min(2000, len(normaux_df)))["pca2"],
+                    mode="markers",
+                    marker=dict(color=COLORS["blue"], size=4, opacity=0.3),
+                    name="Produits normaux"
+                ))
+                fig_pca_anom.add_trace(go.Scatter(
+                    x=anomalies_df["pca1"],
+                    y=anomalies_df["pca2"],
+                    mode="markers",
+                    marker=dict(color=COLORS["coral"], size=12,
+                               symbol="x", opacity=1.0,
+                               line=dict(width=2, color="white")),
+                    name="Anomalies",
+                    text=anomalies_df["produit"],
+                    hoverinfo="text"
+                ))
+                fig_pca_anom.update_layout(**PLOTLY_LAYOUT,
+                                          title="PCA — Anomalies DBSCAN surlignées",
+                                          height=350)
+                st.plotly_chart(fig_pca_anom, use_container_width=True)
+
+            # Tableau anomalies
+            st.markdown("#### Détail des anomalies détectées")
+            cols_anom = [c for c in ["shop", "categorie", "produit", "prix",
+                                     "score_popularite", "remise_norm"] if c in anomalies_df.columns]
             st.dataframe(
-                profil.style.background_gradient(subset=["prix_moyen"], cmap="YlOrBr"),
-                use_container_width=True
+                anomalies_df[cols_anom].sort_values("prix", ascending=False).round(3),
+                use_container_width=True, hide_index=True
             )
-        with c6:
-            cluster_shop = dff.groupby(["cluster_nom","shop"]).size().reset_index(name="n")
-            fig_cl = px.bar(cluster_shop, x="cluster_nom", y="n", color="shop",
-                            color_discrete_sequence=COLORS,
-                            title="Répartition clusters par boutique",
-                            barmode="stack")
-            fig_cl.update_layout(**PLOT_LAYOUT)
-            st.plotly_chart(fig_cl, use_container_width=True)
+        else:
+            st.success("Aucune anomalie détectée avec les filtres actuels.")
+
     else:
-        st.info("Données de clustering non disponibles pour ce filtre.")
+        # Charger depuis le CSV anomalies
+        anomalies_csv = charger_anomalies()
+        if not anomalies_csv.empty:
+            st.dataframe(anomalies_csv, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Lance ml_pipeline_complet.py pour générer les anomalies DBSCAN.")
 
-# ══════════════════════════════════════════════════════════════
-# PAGE 5 — RANDOM FOREST
-# ══════════════════════════════════════════════════════════════
-elif page == "Random Forest":
-    st.markdown('<div class="section-label">ML Models / Classification supervisée</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Prédiction Top-K<br>par Random Forest.</div>', unsafe_allow_html=True)
+# ════════════════════════════════════════════════════════════
+# TAB 5 — RÈGLES D'ASSOCIATION
+# ════════════════════════════════════════════════════════════
+with tab5:
+    st.markdown(f"## 🔗 {T['rules_titre']}")
 
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Algorithme", "Random Forest")
-    c2.metric("Arbres", "200")
-    c3.metric("F1 Score (CV)", "0.760")
-    c4.metric("Validation", "5-fold CV")
+    rules = charger_regles()
 
-    st.markdown("""
-    <div class="card">
-        <div class="card-label">Variables utilisées pour la prédiction</div>
-        <div style="margin-top:8px">
-            <span class="tag">log_prix</span>
-            <span class="tag">promo_bin</span>
-            <span class="tag">stock_bin</span>
-            <span class="tag">shop_id</span>
-            <span class="tag">categorie_id</span>
-            <span class="tag">platform_id</span>
-            <span class="tag">cluster</span>
-        </div>
-        <div style="font-size:11px;color:#444;margin-top:12px">
-            score_popularite exclu pour éviter la fuite de données (data leakage)
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    if not rules.empty:
+        col_r1, col_r2, col_r3 = st.columns(3)
+        col_r1.metric("Règles trouvées", len(rules))
+        col_r2.metric("Lift max", f"{rules['lift'].max():.2f}")
+        col_r3.metric("Confidence max", f"{rules['confidence'].max():.2f}")
 
-    import os
-    if os.path.exists("confusion_matrix.png"):
-        st.image("confusion_matrix.png",
-                 caption="Matrice de confusion — Random Forest", width=700)
+        st.markdown("---")
+
+        # Filtres règles
+        col_rf1, col_rf2, col_rf3 = st.columns(3)
+        with col_rf1:
+            min_support = st.slider("Support minimum", 0.0, 1.0, 0.2, 0.05)
+        with col_rf2:
+            min_conf = st.slider("Confidence minimum", 0.0, 1.0, 0.5, 0.05)
+        with col_rf3:
+            min_lift = st.slider("Lift minimum", 1.0, 10.0, 1.0, 0.5)
+
+        rules_filtered = rules[
+            (rules["support"] >= min_support) &
+            (rules["confidence"] >= min_conf) &
+            (rules["lift"] >= min_lift)
+        ].sort_values("lift", ascending=False)
+
+        st.markdown(f"**{len(rules_filtered)} règles** après filtrage")
+
+        col_rv1, col_rv2 = st.columns(2)
+
+        with col_rv1:
+            # Scatter support vs confidence
+            fig_rules = px.scatter(
+                rules_filtered.head(200),
+                x="support", y="confidence",
+                size="lift",
+                color="lift",
+                color_continuous_scale=[[0, "#378ADD"], [0.5, "#7F77DD"], [1, "#D4537E"]],
+                hover_data=["antecedents", "consequents"],
+                title="Support vs Confidence (taille = Lift)"
+            )
+            fig_rules.update_layout(**PLOTLY_LAYOUT, height=320)
+            st.plotly_chart(fig_rules, use_container_width=True)
+
+        with col_rv2:
+            # Distribution du lift
+            fig_lift = px.histogram(
+                rules_filtered, x="lift",
+                nbins=30,
+                color_discrete_sequence=[COLORS["purple"]],
+                title="Distribution du Lift"
+            )
+            fig_lift.update_layout(**PLOTLY_LAYOUT, height=320)
+            st.plotly_chart(fig_lift, use_container_width=True)
+
+        # Tableau des règles
+        st.markdown("#### Top règles")
+        rules_display = rules_filtered.head(50).copy()
+        rules_display["antecedents"] = rules_display["antecedents"].astype(str).str.replace("frozenset", "").str.replace("{","").str.replace("}","").str.replace("'","")
+        rules_display["consequents"] = rules_display["consequents"].astype(str).str.replace("frozenset", "").str.replace("{","").str.replace("}","").str.replace("'","")
+        rules_display = rules_display[["antecedents", "consequents", "support", "confidence", "lift"]].round(3)
+        rules_display.columns = ["Si (antécédent)", "Alors (conséquent)", "Support", "Confidence", "Lift"]
+        st.dataframe(rules_display, use_container_width=True, hide_index=True)
+
     else:
-        st.info("confusion_matrix.png non trouvé — lancez ml_pipeline.py d'abord.")
+        st.warning("Lance ml_pipeline_complet.py pour générer regles_association.csv")
 
-    if os.path.exists("feature_importance.png"):
-        st.image("feature_importance.png",
-                 caption="Importance des variables", width=700)
-    else:
-        st.info("feature_importance.png non trouvé — lancez ml_pipeline.py d'abord.")
+# ════════════════════════════════════════════════════════════
+# TAB 6 — MODULE LLM
+# ════════════════════════════════════════════════════════════
+with tab6:
+    st.markdown("## 🤖 Intelligence Augmentée par LLM")
+    st.markdown("*Powered by openai/gpt-oss-120b via Groq*")
 
-# ══════════════════════════════════════════════════════════════
-# PAGE 6 — APRIORI RULES
-# ══════════════════════════════════════════════════════════════
-elif page == "Apriori Rules":
-    st.markdown('<div class="section-label">Association Rules / Apriori Algorithm</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Règles d\'association<br>entre catégories de produits.</div>', unsafe_allow_html=True)
+    # ── Section 1 : Résumé automatique Top-K ────────────────
+    st.markdown("---")
+    st.markdown("### Résumé automatique des Top-K produits")
 
-    if len(rules) > 0:
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Règles trouvées", f"{len(rules):,}")
-        c2.metric("Lift moyen",      f"{rules['lift'].mean():.2f}")
-        c3.metric("Confiance moy.",  f"{rules['confidence'].mean():.2f}")
+    col_llm1, col_llm2 = st.columns(2)
 
-        st.markdown("""
-        <div class="card">
-            <div class="card-label">Lecture des métriques</div>
-            <div style="font-size:11px;color:#555;line-height:1.9">
-                <span class="accent">Support</span> = fréquence d'apparition de la règle dans le dataset<br>
-                <span class="accent">Confidence</span> = probabilité que B soit présent si A est présent<br>
-                <span class="accent">Lift</span> = force de l'association (lift=5 = très forte)
+    with col_llm1:
+        categorie_llm = st.selectbox(
+            "Choisir une catégorie à analyser",
+            options=["Toutes"] + sorted(df_topk["categorie"].dropna().unique().tolist()),
+            key="llm_cat"
+        )
+        nb_produits_llm = st.slider("Nombre de produits à analyser", 3, 15, 5, key="llm_nb")
+
+    with col_llm2:
+        shop_llm = st.selectbox(
+            "Choisir une boutique",
+            options=["Toutes"] + sorted(df_topk["shop"].unique().tolist()),
+            key="llm_shop"
+        )
+
+    # Filtrage pour le LLM
+    df_llm = df_topk.copy()
+    if categorie_llm != "Toutes":
+        df_llm = df_llm[df_llm["categorie"] == categorie_llm]
+    if shop_llm != "Toutes":
+        df_llm = df_llm[df_llm["shop"] == shop_llm]
+    df_llm = df_llm.head(nb_produits_llm)
+
+    if st.button("Générer le résumé Top-K", key="btn_resume"):
+        if len(df_llm) == 0:
+            st.warning("Aucun produit trouvé avec ces filtres.")
+        else:
+            # Construction du prompt
+            produits_str = ""
+            for _, row in df_llm.iterrows():
+                produits_str += (
+                    f"- {row['produit']} | Shop: {row['shop']} | "
+                    f"Prix: {row['prix']:.0f} DH | "
+                    f"Score: {row['score_popularite']:.3f} | "
+                    f"Catégorie: {row['categorie']} | "
+                    f"Promo: {'Oui' if row['promo_bin'] == 1 else 'Non'}\n"
+                )
+
+            prompt_resume = f"""Tu es un expert en e-commerce marocain. 
+Voici les {nb_produits_llm} meilleurs produits (Top-K) détectés par notre système d'analyse ML :
+
+{produits_str}
+
+Génère un résumé analytique professionnel en français qui :
+1. Identifie les tendances communes entre ces produits
+2. Explique pourquoi ces produits sont populaires
+3. Donne 3 recommandations business concrètes
+4. Utilise un ton professionnel et concis (max 300 mots)"""
+
+            with st.spinner("Le LLM analyse les produits..."):
+                resume = appeler_llm(prompt_resume)
+
+            st.markdown("#### Analyse générée :")
+            st.markdown(f"""
+            <div style='background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.3);
+                        border-radius:12px;padding:20px;color:rgba(255,255,255,0.85);
+                        line-height:1.7;font-size:14px'>
+            {resume.replace(chr(10), '<br>')}
             </div>
+            """, unsafe_allow_html=True)
+
+    # ── Section 2 : Analyse concurrentielle ─────────────────
+    st.markdown("---")
+    st.markdown("### Analyse concurrentielle entre boutiques")
+
+    if st.button("Générer l'analyse concurrentielle", key="btn_concurrence"):
+        # Stats par shop
+        stats_shops = df.groupby("shop").agg(
+            nb_produits=("produit", "count"),
+            prix_moyen=("prix", "mean"),
+            score_moyen=("score_popularite", "mean"),
+            pct_promo=("promo_bin", "mean"),
+            nb_topk=("top_k", "sum")
+        ).round(2).reset_index()
+
+        stats_str = ""
+        for _, row in stats_shops.iterrows():
+            stats_str += (
+                f"- {row['shop']} : {int(row['nb_produits'])} produits | "
+                f"Prix moyen {row['prix_moyen']:.0f} DH | "
+                f"Score moyen {row['score_moyen']:.3f} | "
+                f"Promo {row['pct_promo']*100:.0f}% | "
+                f"Top-K : {int(row['nb_topk'])} produits\n"
+            )
+
+        prompt_concurrence = f"""Tu es un analyste e-commerce spécialisé dans le marché marocain.
+Voici les statistiques de {len(stats_shops)} boutiques en ligne marocaines :
+
+{stats_str}
+
+Génère une analyse concurrentielle professionnelle en français qui :
+1. Compare les forces et faiblesses de chaque boutique
+2. Identifie le leader du marché et explique pourquoi
+3. Détecte les niches de marché exploitées
+4. Propose 3 stratégies pour améliorer le positionnement
+Sois concis et analytique (max 350 mots)."""
+
+        with st.spinner("Analyse concurrentielle en cours..."):
+            analyse_conc = appeler_llm(prompt_concurrence)
+
+        st.markdown("#### Analyse concurrentielle :")
+        st.markdown(f"""
+        <div style='background:rgba(55,138,221,0.08);border:1px solid rgba(55,138,221,0.3);
+                    border-radius:12px;padding:20px;color:rgba(255,255,255,0.85);
+                    line-height:1.7;font-size:14px'>
+        {analyse_conc.replace(chr(10), '<br>')}
         </div>
         """, unsafe_allow_html=True)
 
-        rules["antecedents"] = rules["antecedents"].astype(str)
-        rules["consequents"] = rules["consequents"].astype(str)
+    # ── Section 3 : Chatbot BI ───────────────────────────────
+    st.markdown("---")
+    st.markdown("### Chatbot BI — Pose une question sur les données")
 
-        fig_rules = px.scatter(
-            rules.head(100), x="support", y="confidence",
-            size="lift", color="lift",
-            color_continuous_scale=[[0,"#1a1a1a"],[1,ACCENT]],
-            hover_data=["antecedents","consequents"],
-            title="Support vs Confiance (taille = lift)"
-        )
-        fig_rules.update_layout(**PLOT_LAYOUT)
-        st.plotly_chart(fig_rules, use_container_width=True)
+    # Initialisation historique chat
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
 
-        st.dataframe(
-            rules[["antecedents","consequents","support","confidence","lift"]]
-            .head(20).reset_index(drop=True),
-            use_container_width=True
-        )
-    else:
-        st.warning("regles_association.csv non trouvé.")
-
-# ══════════════════════════════════════════════════════════════
-# PAGE 7 — LLM INSIGHTS
-# ══════════════════════════════════════════════════════════════
-elif page == "LLM Insights":
-    st.markdown('<div class="section-label">LLM / Enrichissement automatique</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Synthèse intelligente<br>par modèle de langage.</div>', unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="card">
-        <div class="card-label">Architecture LLM</div>
-        <div style="font-size:12px;color:#555;line-height:1.9">
-            Ce module utilise l'API Claude pour générer automatiquement des synthèses business
-            à partir des résultats ML. Il suit le
-            <span class="accent">Model Context Protocol (MCP)</span> d'Anthropic
-            pour une interaction responsable et contrôlée avec les outils.
+    # Affichage historique
+    for msg in st.session_state.chat_history:
+        role_color = "#7F77DD" if msg["role"] == "user" else "#1D9E75"
+        role_label = "Toi" if msg["role"] == "user" else "LLM"
+        st.markdown(f"""
+        <div style='background:rgba(255,255,255,0.04);border-left:3px solid {role_color};
+                    border-radius:8px;padding:12px 16px;margin:8px 0;
+                    color:rgba(255,255,255,0.85);font-size:13px'>
+        <strong style='color:{role_color}'>{role_label} :</strong><br>
+        {msg["content"].replace(chr(10), "<br>")}
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    top5 = (dff.sort_values("score_popularite", ascending=False)
-            .head(5)[["shop","produit","prix","categorie"]]
-            .to_string(index=False))
+    # Suggestions de questions
+    st.markdown("**Suggestions :**")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        if st.button("Quels sont les produits les plus populaires ?", key="sug1"):
+            st.session_state.question_input = "Quels sont les produits les plus populaires ?"
+    with col_s2:
+        if st.button("Analyse les tendances de prix", key="sug2"):
+            st.session_state.question_input = "Analyse les tendances de prix par catégorie"
+    with col_s3:
+        if st.button("Quelles promotions sont efficaces ?", key="sug3"):
+            st.session_state.question_input = "Quelles promotions sont les plus efficaces ?"
 
-    cluster_summary = (dff.groupby("cluster_nom")["prix"].mean().round(0).to_dict()
-                       if "cluster_nom" in dff.columns else {})
+    # Input question
+    question = st.text_input(
+        "Pose ta question ici...",
+        key="chat_input",
+        placeholder="Ex: Quels sont les 5 produits émergents cette semaine ?"
+    )
 
-    nb_rules = len(rules)
-    lift_moy = f"{rules['lift'].mean():.2f}" if nb_rules > 0 else "N/A"
+    if st.button("Envoyer", key="btn_chat") and question:
+        # Contexte données pour le LLM
+        contexte = f"""Tu es un assistant BI expert en e-commerce marocain.
+Voici le contexte des données analysées :
+- Dataset : {len(df)} produits de {df['shop'].nunique()} boutiques
+- Boutiques : {', '.join(df['shop'].unique())}
+- Catégories : {df['categorie'].nunique()} catégories
+- Prix moyen : {df['prix'].mean():.0f} DH
+- Top-K produits : {df['top_k'].sum()} produits sélectionnés
+- Produits en promo : {df['promo_bin'].sum()} produits
+- Score moyen : {df['score_popularite'].mean():.3f}
 
-    contexte = f"""
-Dataset : {len(dff):,} produits | {dff['shop'].nunique()} boutiques | {dff['categorie'].nunique()} catégories
-Prix moyen : {dff['prix'].mean():.0f} DH | Médian : {dff['prix'].median():.0f} DH
-En promotion : {int(dff['promo_bin'].sum()):,} ({dff['promo_bin'].mean()*100:.1f}%)
-Clusters KMeans : {cluster_summary}
-Silhouette Score : 0.490 | F1 Random Forest : 0.760
-Règles Apriori : {nb_rules:,} règles | Lift moyen : {lift_moy}
-Top 5 produits :
-{top5}
-    """
+Top 5 produits actuels :
+"""
+        for _, row in df_topk.head(5).iterrows():
+            contexte += f"- {row['produit']} ({row['shop']}) : {row['prix']:.0f} DH, score {row['score_popularite']:.3f}\n"
 
-    st.markdown('<div class="card-label">Contexte transmis au LLM</div>', unsafe_allow_html=True)
-    st.code(contexte, language="text")
+        prompt_chat = f"{contexte}\n\nQuestion de l'utilisateur : {question}\n\nRéponds en français, de façon claire et concise (max 200 mots)."
 
-    api_key = st.text_input("Clé API Anthropic", type="password",
-                             placeholder="sk-ant-...")
-    prompt_choice = st.selectbox("Type d'analyse", [
-        "Synthèse générale du marché",
-        "Recommandations stratégiques pour les boutiques",
-        "Analyse des tendances prix et promotions",
-        "Interprétation des clusters KMeans",
-        "Opportunités détectées par les règles Apriori"
-    ])
+        # Ajouter question à l'historique
+        st.session_state.chat_history.append({
+            "role": "user",
+            "content": question
+        })
 
-    if st.button("Générer la synthèse LLM", type="primary"):
-        if not api_key:
-            st.error("Entrez votre clé API Anthropic")
-        else:
-            import anthropic
-            prompts = {
-                "Synthèse générale du marché":
-                    f"Tu es un analyste e-commerce expert. Voici les données :\n{contexte}\n\nGénère une synthèse business claire en français (5-7 phrases).",
-                "Recommandations stratégiques pour les boutiques":
-                    f"Données :\n{contexte}\n\nPropose 5 recommandations stratégiques concrètes.",
-                "Analyse des tendances prix et promotions":
-                    f"Données :\n{contexte}\n\nAnalyse la stratégie de prix et les promotions détectées.",
-                "Interprétation des clusters KMeans":
-                    f"Données :\n{contexte}\n\nInterprète les clusters KMeans d'un point de vue business.",
-                "Opportunités détectées par les règles Apriori":
-                    f"Données :\n{contexte}\n\nQuelles opportunités de cross-selling les règles d'association révèlent-elles ?"
-            }
+        with st.spinner("Réflexion en cours..."):
+            reponse = appeler_llm(prompt_chat)
 
-            with st.spinner("Génération en cours..."):
-                try:
-                    client = anthropic.Anthropic(api_key=api_key)
-                    message = client.messages.create(
-                        model="claude-opus-4-6",
-                        max_tokens=800,
-                        messages=[{"role":"user","content": prompts[prompt_choice]}]
-                    )
-                    reponse = message.content[0].text
-                    st.markdown(f"""
-                    <div class="card">
-                        <div class="card-label">Synthèse générée par Claude</div>
-                        <div style="font-size:13px;color:#888;line-height:1.9;margin-top:8px">
-                            {reponse.replace(chr(10),'<br>')}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Erreur API : {e}")
-                    st.markdown(f"""
-                    <div class="card">
-                        <div class="card-label">Synthèse exemple (sans LLM)</div>
-                        <div style="font-size:12px;color:#666;line-height:1.9">
-                            Le marché e-commerce marocain analysé présente {len(dff):,} produits
-                            avec un prix médian de {dff['prix'].median():.0f} DH, dominé par le
-                            segment mid-range. Justyol représente la plus grande part du catalogue
-                            avec {dff[dff['shop']=='Justyol'].shape[0]:,} produits.
-                            Le clustering KMeans révèle 5 segments distincts (Silhouette=0.49).
-                            Les règles d'association montrent un lift de 5.0, suggérant de fortes
-                            opportunités de cross-selling entre Mode et Beauté.
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+        # Ajouter réponse à l'historique
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": reponse
+        })
+
+        st.rerun()
+
+    # Bouton reset chat
+    if st.session_state.chat_history:
+        if st.button("Effacer la conversation", key="btn_reset"):
+            st.session_state.chat_history = []
+            st.rerun()
