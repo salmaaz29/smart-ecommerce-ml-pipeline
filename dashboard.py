@@ -7,8 +7,11 @@ from plotly.subplots import make_subplots
 
 from groq import Groq
 
-# Clé API Groq — mets ta nouvelle clé ici après l'avoir régénérée
-GROQ_API_KEY = "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"
+# Clé API Groq
+import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL   = "openai/gpt-oss-120b"
 
 @st.cache_data(show_spinner=False)
