@@ -1,0 +1,16 @@
+{
+  "pipeline": "Smart eCommerce Intelligence",
+  "version": "2.0.0",
+  "date_execution": "2026-04-12 12:38:58",
+  "statistiques": {
+    "produits_total": 11501,
+    "boutiques": 5,
+    "categories": 22,
+    "prix_moyen": 254.7,
+    "score_moyen": 0.5204,
+    "top_k_count": 2453,
+    "pct_topk": 21.3,
+    "anomalies_dbscan": 8,
+    "clusters_kmeans": 3
+  }
+}

@@ -1,0 +1,332 @@
+# PIPELINE DEFINITION
+# Name: smart-ecommerce-pipeline-optimized
+# Description: Pipeline optimis� � utilise dataset_features.csv existant
+# Outputs:
+#    export-component-output_metrics: system.Metrics
+#    load-features-component-output_metrics: system.Metrics
+#    validation-component-output_metrics: system.Metrics
+components:
+  comp-export-component:
+    executorLabel: exec-export-component
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        output_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        output_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-load-features-component:
+    executorLabel: exec-load-features-component
+    outputDefinitions:
+      artifacts:
+        output_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        output_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-validation-component:
+    executorLabel: exec-validation-component
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        output_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-export-component:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - export_component
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef export_component(\n    input_dataset: Input[Dataset],\n    output_dataset:\
+          \ Output[Dataset],\n    output_metrics: Output[Metrics]\n):\n    \"\"\"\n\
+          \    Export final format\xE9 pour Kubeflow Pipelines.\n    G\xE9n\xE8re\
+          \ les artifacts requis.\n    \"\"\"\n    import pandas as pd\n    import\
+          \ json\n    from datetime import datetime\n\n    print(\"=\" * 50)\n   \
+          \ print(\"\xC9TAPE 3 \u2014 EXPORT KUBEFLOW\")\n    print(\"=\" * 50)\n\n\
+          \    df = pd.read_csv(input_dataset.path, engine=\"python\")\n\n    # 1.\
+          \ Dataset complet (pass\xE9 \xE0 l'output_dataset)\n    df.to_csv(output_dataset.path,\
+          \ index=False, encoding=\"utf-8-sig\")\n    print(f\" Dataset complet :\
+          \ {output_dataset.path}\")\n\n    # 2. Top-K pour dashboard\n    if \"top_k\"\
+          \ in df.columns:\n        df_topk = df[df[\"top_k\"] == 1].sort_values(\n\
+          \            \"score_popularite\", ascending=False\n        )\n        topk_path\
+          \ = output_dataset.path.replace(\".csv\", \"_topk.csv\")\n        df_topk.to_csv(topk_path,\
+          \ index=False, encoding=\"utf-8-sig\")\n        print(f\" Top-K produits\
+          \  : {topk_path} ({len(df_topk)} produits)\")\n        output_metrics.log_metric(\"\
+          export_topk_count\", len(df_topk))\n\n    # 3. Anomalies\n    if \"dbscan_label\"\
+          \ in df.columns:\n        df_anomalies = df[df[\"dbscan_label\"] == -1]\n\
+          \        if len(df_anomalies) > 0:\n            anomalies_path = output_dataset.path.replace(\"\
+          .csv\", \"_anomalies.csv\")\n            df_anomalies.to_csv(anomalies_path,\
+          \ index=False, encoding=\"utf-8-sig\")\n            print(f\" Anomalies\
+          \       : {anomalies_path} ({len(df_anomalies)} anomalies)\")\n\n    # 4.\
+          \ Rapport JSON\n    rapport = {\n        \"pipeline\": \"Smart eCommerce\
+          \ Intelligence\",\n        \"version\": \"2.0.0\",\n        \"date_execution\"\
+          : datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\"),\n        \"statistiques\"\
+          : {\n            \"produits_total\": len(df),\n            \"boutiques\"\
+          : df[\"shop\"].nunique(),\n            \"categories\": df[\"categorie\"\
+          ].nunique(),\n            \"prix_moyen\": round(df[\"prix\"].mean(), 2)\
+          \ if \"prix\" in df.columns else None,\n            \"score_moyen\": round(df[\"\
+          score_popularite\"].mean(), 4) if \"score_popularite\" in df.columns else\
+          \ None,\n            \"top_k_count\": int(df[\"top_k\"].sum()) if \"top_k\"\
+          \ in df.columns else 0,\n            \"pct_topk\": round(df[\"top_k\"].mean()\
+          \ * 100, 1) if \"top_k\" in df.columns else 0,\n            \"anomalies_dbscan\"\
+          : int((df[\"dbscan_label\"] == -1).sum()) if \"dbscan_label\" in df.columns\
+          \ else 0,\n            \"clusters_kmeans\": int(df[\"cluster_nom\"].nunique())\
+          \ if \"cluster_nom\" in df.columns else 0,\n        }\n    }\n\n    rapport_path\
+          \ = output_dataset.path.replace(\".csv\", \"_rapport.json\")\n    with open(rapport_path,\
+          \ \"w\", encoding=\"utf-8\") as f:\n        json.dump(rapport, f, ensure_ascii=False,\
+          \ indent=2)\n    print(f\" Rapport JSON    : {rapport_path}\")\n\n    #\
+          \ M\xE9triques finales\n    output_metrics.log_metric(\"pipeline_success\"\
+          , 1)\n    output_metrics.log_metric(\"total_artifacts\", 4)\n\n    print(\"\
+          \\n\" + \"=\" * 50)\n    print(\" PIPELINE TERMIN\xC9 AVEC SUCC\xC8S\")\n\
+          \    print(\"=\" * 50)\n\n"
+        image: docker.io/library/python:3.11-slim
+        imagePullPolicy: IfNotPresent
+    exec-load-features-component:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_features_component
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_features_component(\n    output_dataset: Output[Dataset],\n\
+          \    output_metrics: Output[Metrics]\n):\n    \"\"\"\n    Charge directement\
+          \ dataset_features.csv qui contient D\xC9J\xC0 :\n    - Nettoyage\n    -\
+          \ score_popularite\n    - top_k\n    - cluster (KMeans K=5)\n    - cluster_nom\n\
+          \    - pca1, pca2\n    - dbscan_label\n\n    RIEN n'est recalcul\xE9 !\n\
+          \    \"\"\"\n    import pandas as pd\n    import os\n\n    print(\"=\" *\
+          \ 50)\n    print(\"\xC9TAPE 1 \u2014 CHARGEMENT dataset_features.csv\")\n\
+          \    print(\"=\" * 50)\n\n    fichier = \"dataset_features.csv\"\n\n   \
+          \ if not os.path.exists(fichier):\n        raise FileNotFoundError(\n  \
+          \          f\" {fichier} non trouv\xE9 !\\n\"\n            \"Lance d'abord\
+          \ : python ml_pipeline_complet.py\"\n        )\n\n    print(f\" Chargement\
+          \ de {fichier}\")\n    df = pd.read_csv(fichier, encoding=\"utf-8-sig\"\
+          )\n\n    # Statistiques\n    print(f\"\\n Donn\xE9es charg\xE9es :\")\n\
+          \    print(f\"   - Produits total      : {len(df)}\")\n    print(f\"   -\
+          \ Boutiques           : {df['shop'].nunique()}\")\n    print(f\"   - Cat\xE9\
+          gories          : {df['categorie'].nunique()}\")\n\n    if \"top_k\" in\
+          \ df.columns:\n        print(f\"   - Top-K produits      : {df['top_k'].sum()}\"\
+          )\n\n    if \"cluster_nom\" in df.columns:\n        print(f\"   - Clusters\
+          \ KMeans     : {df['cluster_nom'].nunique()}\")\n        print(f\"     {df['cluster_nom'].value_counts().to_dict()}\"\
+          )\n\n    if \"dbscan_label\" in df.columns:\n        anomalies = (df[\"\
+          dbscan_label\"] == -1).sum()\n        clusters = df[df[\"dbscan_label\"\
+          ] != -1][\"dbscan_label\"].nunique()\n        print(f\"   - Clusters DBSCAN\
+          \     : {clusters}\")\n        print(f\"   - Anomalies DBSCAN    : {anomalies}\"\
+          )\n\n    if \"pca1\" in df.columns and \"pca2\" in df.columns:\n       \
+          \ print(f\"   - PCA                 : 2 composantes disponibles\")\n\n \
+          \   # Sauvegarde pour l'\xE9tape suivante\n    df.to_csv(output_dataset.path,\
+          \ index=False, encoding=\"utf-8-sig\")\n\n    # M\xE9triques pour Kubeflow\n\
+          \    output_metrics.log_metric(\"produits_total\", len(df))\n    output_metrics.log_metric(\"\
+          nb_boutiques\", int(df[\"shop\"].nunique()))\n    output_metrics.log_metric(\"\
+          nb_categories\", int(df[\"categorie\"].nunique()))\n\n    if \"top_k\" in\
+          \ df.columns:\n        output_metrics.log_metric(\"top_k_count\", int(df[\"\
+          top_k\"].sum()))\n        output_metrics.log_metric(\"pct_topk\", round(df[\"\
+          top_k\"].mean() * 100, 2))\n\n    if \"prix\" in df.columns:\n        output_metrics.log_metric(\"\
+          prix_moyen\", round(df[\"prix\"].mean(), 2))\n        output_metrics.log_metric(\"\
+          prix_median\", round(df[\"prix\"].median(), 2))\n\n    if \"score_popularite\"\
+          \ in df.columns:\n        output_metrics.log_metric(\"score_moyen\", round(df[\"\
+          score_popularite\"].mean(), 4))\n\n    if \"dbscan_label\" in df.columns:\n\
+          \        output_metrics.log_metric(\"anomalies_dbscan\", int((df[\"dbscan_label\"\
+          ] == -1).sum()))\n\n    print(f\"\\n Donn\xE9es pr\xEAtes : {output_dataset.path}\"\
+          )\n\n"
+        image: docker.io/library/python:3.11-slim
+        imagePullPolicy: IfNotPresent
+    exec-validation-component:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - validation_component
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef validation_component(\n    input_dataset: Input[Dataset],\n \
+          \   output_metrics: Output[Metrics]\n):\n    \"\"\"\n    Valide la qualit\xE9\
+          \ du dataset_features.csv\n    \"\"\"\n    import pandas as pd\n    import\
+          \ numpy as np\n\n    print(\"=\" * 50)\n    print(\"\xC9TAPE 2 \u2014 VALIDATION\
+          \ QUALIT\xC9\")\n    print(\"=\" * 50)\n\n    df = pd.read_csv(input_dataset.path,\
+          \ engine=\"python\")\n\n    # V\xE9rifications\n    print(f\"\\n V\xE9rifications\
+          \ :\")\n\n    # 1. Score popularit\xE9\n    if \"score_popularite\" in df.columns:\n\
+          \        nan_score = df[\"score_popularite\"].isna().sum()\n        print(f\"\
+          \   - NaN score_popularite : {nan_score} / {len(df)}\")\n        output_metrics.log_metric(\"\
+          nan_score\", int(nan_score))\n\n        if nan_score > 0:\n            print(f\"\
+          \       ALERTE : {nan_score} scores NaN\")\n\n    # 2. Top-K\n    if \"\
+          top_k\" in df.columns:\n        pct_topk = df[\"top_k\"].mean() * 100\n\
+          \        print(f\"   - % Top-K              : {pct_topk:.1f}%\")\n     \
+          \   output_metrics.log_metric(\"validation_pct_topk\", round(pct_topk, 1))\n\
+          \n        # Top-K par shop\n        print(f\"\\n    Top-K par boutique :\"\
+          )\n        topk_shop = df.groupby(\"shop\")[\"top_k\"].agg([\"sum\", \"\
+          count\"])\n        topk_shop[\"%\"] = (topk_shop[\"sum\"] / topk_shop[\"\
+          count\"] * 100).round(1)\n        for shop, row in topk_shop.iterrows():\n\
+          \            print(f\"      {shop}: {int(row['sum'])} / {int(row['count'])}\
+          \ ({row['%']:.1f}%)\")\n\n    # 3. Clusters KMeans\n    if \"cluster_nom\"\
+          \ in df.columns:\n        print(f\"\\n    Clusters KMeans :\")\n       \
+          \ for nom, count in df[\"cluster_nom\"].value_counts().items():\n      \
+          \      print(f\"      {nom}: {count} produits\")\n        output_metrics.log_metric(\"\
+          n_clusters_kmeans\", int(df[\"cluster_nom\"].nunique()))\n\n    # 4. DBSCAN\n\
+          \    if \"dbscan_label\" in df.columns:\n        anomalies = (df[\"dbscan_label\"\
+          ] == -1).sum()\n        clusters = df[df[\"dbscan_label\"] != -1][\"dbscan_label\"\
+          ].nunique()\n        print(f\"\\n    DBSCAN : {clusters} clusters, {anomalies}\
+          \ anomalies\")\n        output_metrics.log_metric(\"validation_anomalies\"\
+          , int(anomalies))\n\n    # 5. Prix\n    if \"prix\" in df.columns:\n   \
+          \     prix_min = df[\"prix\"].min()\n        prix_max = df[\"prix\"].max()\n\
+          \        print(f\"\\n    Prix : min={prix_min:.0f} DH, max={prix_max:.0f}\
+          \ DH\")\n\n        if prix_min < 5:\n            print(f\"       ALERTE\
+          \ : prix minimum anormal ({prix_min:.2f} DH)\")\n        if prix_max > 50000:\n\
+          \            print(f\"       ALERTE : prix maximum anormal ({prix_max:.0f}\
+          \ DH)\")\n\n    print(\"\\n Validation termin\xE9e\")\n\n"
+        image: docker.io/library/python:3.11-slim
+        imagePullPolicy: IfNotPresent
+pipelineInfo:
+  description: "Pipeline optimis\xE9 \u2014 utilise dataset_features.csv existant"
+  name: smart-ecommerce-pipeline-optimized
+root:
+  dag:
+    outputs:
+      artifacts:
+        export-component-output_metrics:
+          artifactSelectors:
+          - outputArtifactKey: output_metrics
+            producerSubtask: export-component
+        load-features-component-output_metrics:
+          artifactSelectors:
+          - outputArtifactKey: output_metrics
+            producerSubtask: load-features-component
+        validation-component-output_metrics:
+          artifactSelectors:
+          - outputArtifactKey: output_metrics
+            producerSubtask: validation-component
+    tasks:
+      export-component:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-export-component
+        dependentTasks:
+        - load-features-component
+        - validation-component
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: output_dataset
+                producerTask: load-features-component
+        taskInfo:
+          name: 3. Export pour Kubeflow
+      load-features-component:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-load-features-component
+        taskInfo:
+          name: 1. Charger dataset_features.csv
+      validation-component:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-validation-component
+        dependentTasks:
+        - load-features-component
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: output_dataset
+                producerTask: load-features-component
+        taskInfo:
+          name: "2. Validation qualit\xE9"
+  outputDefinitions:
+    artifacts:
+      export-component-output_metrics:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+      load-features-component-output_metrics:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+      validation-component-output_metrics:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0
