@@ -86,8 +86,8 @@ smart_ecommerce/
 ### 1. Cloner le projet
 
 ```bash
-git clone https://github.com/ton-username/smart-ecommerce-intelligence.git
-cd smart-ecommerce-intelligence
+git clone https://github.com/salmaaz29/smart-ecommerce-ml-pipeline.git
+cd smart-ecommerce-ml-pipeline
 ```
 
 ### 2. Installer les dépendances
